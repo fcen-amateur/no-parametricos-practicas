@@ -11,9 +11,10 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
-library(dplyr)
-library(purrr)
-library(ggplot2)
+library(dplyr) # Manipulacion de dataframes
+library(tidyr) # Reacomodo y ordenamiento de tablas
+library(purrr) # Programacion funcional coherente
+library(ggplot2) # Graficos
 resultados <- list()
 DATA_DIR <- "data"
 ```
@@ -620,15 +621,12 @@ pTmas <- function(q, n) {
   pT <- dTmas(0:max_q, n)
   res <- vector("double", length(q))
   for (i in  seq_along(q)) {
-    res[i] <- sum(pT[1:q[[i]]])
+    res[i] <- sum(pT[1:(q[[i]]+1)])
   }
   return(res)
 }
 
-
-prob_Tmas(12, 20)
-dTmas(0:57, 10)
-
+# La distribucion no es mas que la acumulada sobre todo el rango de Tmas(5)
 distr_Tmas <- function(n) { pTmas(0:((n*(n+1)/2)), n) }
 distr_Tmas(5)
 
@@ -687,9 +685,15 @@ walsh <- function(x) {
 test.wilcoxon <- function(
   x, y = NULL, alternativa="dos colas", mu=0, apareadas=FALSE, exacto=TRUE,
   corregir=TRUE, int_conf=FALSE, alfa = 0.05, sin_ceros=TRUE) {
-  obs <- if (is.null(y)) { x - mu
-  } else if (apareadas) { x - y
-  } else { stop("MWW no implementado aun") }
+  obs <- if (is.null(y)) {
+    x - mu
+  } else if (apareadas) {
+    x - y
+  } else { 
+    # Todos los pares de diferencias xi - ji
+    expand.grid(x = x, y = y) %>% mutate(d = x - y) %>% pluck("d")
+  }
+    
   if (any(obs == 0)) {
     warning("No se puede calcular el p-valor exacto con ceros")
     exacto <- FALSE
@@ -700,7 +704,14 @@ test.wilcoxon <- function(
   }
   if (sin_ceros) { obs <- obs[obs!=0] }
   n <- length(obs)
-  Tobs <- suma_rangos_signados(obs)
+  rangos <- rangos_signados(obs)
+  Tobs <- if (apareadas | is.null(y)) { 
+    suma_rangos_signados(obs)
+  } else {
+    # Mann-Whitney-Wilcoxon's W = sum(i, j) s(X_i - Y_j)
+    sum(obs>0)
+  }
+  
   p_valor <- if (exacto) { 
     p_valor.wilcoxon(Tobs, n, alternativa) }
   else {
@@ -915,4 +926,157 @@ wcx.yo <- test.wilcoxon(df$Placebo, df$Droga, apareadas=TRUE,
                         alternativa="mayor", int_conf = TRUE, alfa=alfa)
 str(wcx.R)
 str(wcx.yo)
+```
+
+
+# Practica 4
+
+## Ejercicio 1
+
+Halle la distribucion exacta del estadistico $T = \sum_{j=1}^n R(X_j)$ para $n=3,  m=2$ y compare con la tabla A7 del Conover.
+
+Al igual que para $T^+$, podemos usar una formula recursiva y una memoria para calcular la distribucion exacta bajo la hipotesis nula de manera eficiente:
+
+```{r p4e1}
+max_n <- 50
+max_m <- 50
+max_k <- sum( (max_m+1):(max_n+max_m) )
+memW <- array(dim = c(max_n, max_n, max_k))
+
+A <- function(n, m ,k) {
+  # Devolver valores limites
+  if (k < 0) { return(0) }
+  if (k == 0 | n == 0 | m == 0) {
+    if (n == 0 & k == 0) { return(1) 
+    } else if (m == 0 & (k==n*(n+1)/2)) { return(1)
+    } else { return (0) }
+  }
+  # De estar precomputado, devolver el valor
+  if (!is.na(memW[n,m,k])) { return(memW[n,m,k]) }
+  # Si no, calcularlo, cachearlo y devolverlo
+  valor <- A(n-1, m, k-(m+n)) + A(n, m-1, k)
+  memW[n,m,k] <<- valor
+  return(valor)
+}
+
+dW <- function(x, n, m) {
+  # Devuelve Pr(W = xi | n, m) para cada xi en x
+  posibles <- map_dbl(x, A, n=n, m=m)
+  totales <- choose(n+m, n)
+  return(posibles / totales)
+}
+
+pW <- function(q, n, m) {
+  # Devuelve Pr(W <= qi | n, m)
+  max_q <- max(q)
+  probs <- dW(0:max_q, n, m)
+  res <- vector("double", length(q))
+  for (i in  seq_along(q)) {
+    res[i] <- sum(probs[1:q[[i]]+1])
+  }
+  return(res)
+}
+
+n <- 3
+m <- 2
+N <- n + m
+# Dados n, m, W esta siempre en el rango [n*(n+1)/2, nm + n*(n+1)/2]
+rango <- (n*(n+1)/2):(n*m + n*(n+1)/2)
+probs <- dW(rango, n = 3, m = 2)
+acums <- pW(rango, n = 3, m = 2)
+tibble(rango, probs, acums)
+```
+
+Podemos jugar un poco, y ver como cambia la distribucion de $W$ si dejamos fijo $n+m = N = 15$, y hacemos variar la cantidad de elementos de la primera muestra, n. De izquierda a derecha y arriba a abajo, cada panel muestra la distribucion de W para $n=0:15; \ m=15-n$. La densidad se va "corriendo hacia la derecha", pero sin dejar de ser siempre simetrica:
+```{r grafico_p4e1}
+tibble(
+  n = 0:15,
+  m = 15-n,
+  k = list(0:120),
+  dW = pmap(list(k, n, m), dW)) %>%
+  tidyr::unnest() %>%
+  ggplot(aes(k, dW)) +
+  geom_col() +
+  facet_wrap(~n, scales = "free_y") +
+  theme(
+    strip.background = element_blank(),
+    strip.text.x = element_blank()
+  )
+```
+
+## Ejercicio 3
+
+Testee usando el conjunto de datos presentado en la Tabla, si la temperatura media máxima (en grados Farenheit) de la ciudad de Des Moines es mayor que la temperatura media máxima de Spokane.
+
+De tener observaciones apareadas, podriamos usar Wilcoxon para datos apareados. A falta de ello, usaremos MWW para muestras independientes.
+
+Asumimos que la temperatura en Des Moines ($X_i$) y Spokane ($Y_j$) tienen la misma distribucion, salvo por a lo sumo un corrimiento $\Delta$. Las hipotesis seran:
+
+$$
+\begin{split}
+&H_0: \text{La temp. maxima media en Des Moines no es mayor que en Spokane} \\ \text{vs.} \quad &H_1: \text{Si la es} \\
+&X_{i} \stackrel{iid}{\sim} F(t - \theta_x) \quad Y_j \stackrel{iid}{\sim} F(t - \theta_y) \quad \theta_y = \theta_x + \Delta \\
+&\approx H_0: \theta_x = \theta_y \quad \text{vs.} \quad H_1: \theta_x > \theta_y \\
+&\approx H_0: \Delta = 0 \quad \text{vs.} \quad H_1: \Delta < 0 \\
+\end{split}
+$$
+
+```{r p4e3}
+df <- read.csv(file.path(DATA_DIR, "p4e3.csv")) %>%
+  gather("ciudad", "temp") %>%
+  drop_na
+
+df %>%
+  ggplot(aes(x = rank(temp), y = temp, color=ciudad)) +
+  geom_point()
+```
+
+```{r p4e3}
+# Usando T = suma de rangos de la muestra X
+x <- df[df$ciudad=="Des.Moines",]$temp
+n <- length(x)
+y <- df[df$ciudad=="Spokane",]$temp
+m <- length(y)
+N <- n + m
+rgs <- rank(c(x, y))
+Tobs <- sum(rgs[1:n])
+
+# Hay empates, asi que calculo la esperanza, varianza y correcion por empates
+muT <- n*(N+1)/2
+varT <- (m*n/(N*(N+1))*sum(rgs^2)) - (m*n*(N+1)^2)/(4*(N-1))
+# p-valor aproximacion normal
+p_valor.normal(Tobs, muT, sqrt(varT), "mayor")
+# p-valor exacto
+1 - pW(Tobs - 1, n, m)
+
+wilcox.test(x, y, paired = FALSE)
+```
+Se debe rechazar la hipotesis nula.
+
+## Ejercicio 4
+
+Ejercicio 4: En un experimento controlado de laboratorio, 10 hombres y 10 mujeres son puestos a prueba para determinar cuál es la temperatura (en grados Farenheit) que consideran más confortable. Los resultados se presentan a continuación. Suponiendo que los datos constituyen muestras aleatorias de las respectivas poblaciones, testee si la temperatura más confortable es la misma para hombres y mujeres.
+
+```{r p4e4}
+df <- df <- read.csv(file.path(DATA_DIR, "p4e4.csv")) %>%
+  gather("genero", "temp")
+
+# Usando T = suma de rangos de la muestra X
+x <- df[df$genero=="Hombres",]$temp
+n <- length(x)
+y <- df[df$genero=="Mujeres",]$temp
+m <- length(y)
+N <- n + m
+rgs <- rank(c(x, y))
+Tobs <- sum(rgs[(n+1):(n+m)])
+
+# Hay empates, asi que calculo la esperanza, varianza y correcion por empates
+muT <- n*(N+1)/2
+varT <- (m*n/(N*(N+1))*sum(rgs^2)) - (m*n*(N+1)^2)/(4*(N-1))
+# p-valor aproximacion normal
+p_valor.normal(Tobs, muT, sqrt(varT), "menor")
+# p-valor exacto
+1 - pW(Tobs - 1, 9, 8)
+
+wilcox.test(x, y, paired = FALSE)
 ```
