@@ -1027,11 +1027,9 @@ df <- read.csv(file.path(DATA_DIR, "p4e3.csv")) %>%
   drop_na
 
 df %>%
-  ggplot(aes(x = rank(temp), y = temp, color=ciudad)) +
-  geom_point()
-```
+  ggplot(aes(x = ciudad, y = temp, color=ciudad)) +
+  geom_boxplot()
 
-```{r p4e3}
 # Usando T = suma de rangos de la muestra X
 x <- df[df$ciudad=="Des.Moines",]$temp
 n <- length(x)
@@ -1045,7 +1043,7 @@ Tobs <- sum(rgs[1:n])
 muT <- n*(N+1)/2
 varT <- (m*n/(N*(N+1))*sum(rgs^2)) - (m*n*(N+1)^2)/(4*(N-1))
 # p-valor aproximacion normal
-p_valor.normal(Tobs, muT, sqrt(varT), "mayor")
+p_valor.normal(Tobs, muT, sqrt(varT), "mayor", TRUE)
 # p-valor exacto
 1 - pW(Tobs - 1, n, m)
 
@@ -1057,9 +1055,16 @@ Se debe rechazar la hipotesis nula.
 
 Ejercicio 4: En un experimento controlado de laboratorio, 10 hombres y 10 mujeres son puestos a prueba para determinar cuál es la temperatura (en grados Farenheit) que consideran más confortable. Los resultados se presentan a continuación. Suponiendo que los datos constituyen muestras aleatorias de las respectivas poblaciones, testee si la temperatura más confortable es la misma para hombres y mujeres.
 
+Testeamos igual contra distinto, con alternativa a dos colas:
+
 ```{r p4e4}
-df <- df <- read.csv(file.path(DATA_DIR, "p4e4.csv")) %>%
-  gather("genero", "temp")
+df <- read.csv(file.path(DATA_DIR, "p4e4.csv")) %>%
+  gather("genero", "temp") %>%
+  drop_na
+
+df %>%
+  ggplot(aes(x = genero, y = temp, color=genero)) +
+  geom_boxplot() # Agrega ruido para "dessolapar" obs repetidas
 
 # Usando T = suma de rangos de la muestra X
 x <- df[df$genero=="Hombres",]$temp
@@ -1068,15 +1073,37 @@ y <- df[df$genero=="Mujeres",]$temp
 m <- length(y)
 N <- n + m
 rgs <- rank(c(x, y))
-Tobs <- sum(rgs[(n+1):(n+m)])
+Tobs <- sum(rgs[1:n])
 
 # Hay empates, asi que calculo la esperanza, varianza y correcion por empates
 muT <- n*(N+1)/2
 varT <- (m*n/(N*(N+1))*sum(rgs^2)) - (m*n*(N+1)^2)/(4*(N-1))
 # p-valor aproximacion normal
-p_valor.normal(Tobs, muT, sqrt(varT), "menor")
+p_valor.normal(Tobs, muT, sqrt(varT), "dos colas", TRUE)
 # p-valor exacto
-1 - pW(Tobs - 1, 9, 8)
+2*min(1 - pW(Tobs - 1, n, m), pW(Tobs, n, m))
 
 wilcox.test(x, y, paired = FALSE)
+```
+
+## Ejercicio 5
+
+ Un grupo de siete alumnos recibieron clases de álgebra con un método de enseñanza tradicional y otro grupo de seis alumnos con un nuevo método. Al finalizar el curso, ambos grupos fueron sometidos al mismo examen y los puntajes obtenidos fueron los siguientes. Encuentre un intervalo de confianza del 90% para la diferencia de los puntajes medianos.
+ 
+```{r p4e5}
+df <- read.csv(file.path(DATA_DIR, "p4e5.csv"))
+
+tradi <- df$Método.tradicional
+nuevo <- df$Método.nuevo
+nuevo <- nuevo[!is.na(nuevo)]
+
+d <- expand.grid(tradi = tradi, nuevo = nuevo) %>%
+  mutate(dif = nuevo - tradi) %>%
+  pluck("dif") %>%
+  sort()
+
+median(d)
+ic_percentil(d, 0.5, .1, "exacto")
+ic_percentil(d, 0.5, .1, "asintotico")
+wilcox.test(nuevo, tradi, conf.int = TRUE, conf.level = 0.9)
 ```
