@@ -1105,5 +1105,32 @@ d <- expand.grid(tradi = tradi, nuevo = nuevo) %>%
 median(d)
 ic_percentil(d, 0.5, .1, "exacto")
 ic_percentil(d, 0.5, .1, "asintotico")
-wilcox.test(nuevo, tradi, conf.int = TRUE, conf.level = 0.9)
+wilcox.test(nuevo, tradi, conf.int = TRUE, conf.level = 0.90)
+dwilcox(0:9, 3, 2)
+```
+
+# Practica 5
+
+## Ejercicio 1
+
+```{r}
+df <- read.csv("data/p5e1.csv") %>%
+  gather(clase, duracion) %>%
+  drop_na()
+df
+kruskal.test(df$duracion, df$clase)
+k <- df %>%
+  mutate(rg = rank(duracion)) %>%
+  group_by(clase) %>%
+  summarise(
+    Ridot = sum(rg),
+    ni = length(duracion)) %>%
+  mutate(k = Ridot^2/ni) %>%
+  pluck("k")
+
+N <- length(df$duracion)
+S2 <- N*(N+1)/2
+Tcon <- (1/S2) * (sum(k) - N*(N+1)/4)
+Tsin <- 12/(N*(N+1))*sum(k) - 3*(N+1)
+pchisq(Tsin, length(k)-1, lower.tail = FALSE)
 ```
